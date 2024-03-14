@@ -513,7 +513,7 @@ CREATE TABLE `user` (
 , `created` DATETIME NOT NULL
 , `updated` DATETIME NOT NULL
 , `help_flags1` INTEGER NOT NULL DEFAULT 0, `last_seen_at` DATETIME NULL, `is_disabled` INTEGER NOT NULL DEFAULT 0, is_service_account BOOLEAN DEFAULT 0);
-INSERT INTO user VALUES(1,0,'admin','admin@localhost','','dde2537a69967d9d828eca3c7da08ba060769db947ac6633e641ac8b3a1ea25604635b1600a5e0a4bc50c475f8e8963f976b','jV4hoNj3pq','2NXrqVY9pp','',1,1,0,'','2024-03-14 01:12:57','2024-03-14 01:12:57',0,'2024-03-14 02:36:35',0,0);
+INSERT INTO user VALUES(1,0,'admin','admin@localhost','','7db113bfc11c17407205ef1ed494a837683d94d61f9c181072765aea3522a23bcbf997225c46fb98028215285b31df49a679','jV4hoNj3pq','2NXrqVY9pp','',1,1,0,'','2024-03-14 01:12:57','2024-03-14 03:00:51',0,'2024-03-14 03:16:07',0,0);
 INSERT INTO user VALUES(2,0,'warwick-allen','allen.warwick@gmail.com','Warwick Allen','d98233ef0821e9c10f64894c277ba9c11fc909dab0200f4fa55129bc2e0c86de6a62cfa069d83e610ac25bf7034e0824aea7','XVx4JpS8Gk','HVXEMXQlhm','',1,0,0,'','2024-03-14 02:06:15','2024-03-14 02:06:15',0,'2014-03-14 02:06:15',0,0);
 CREATE TABLE `temp_user` (
 `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL
@@ -824,6 +824,7 @@ CREATE TABLE `server_lock` (
 , `last_execution` INTEGER NOT NULL
 );
 INSERT INTO server_lock VALUES(1,'cleanup expired auth tokens',1,1710378781);
+INSERT INTO server_lock VALUES(9,'delete old login attempts',1,1710385723);
 CREATE TABLE `user_auth_token` (
 `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL
 , `user_id` INTEGER NOT NULL
@@ -838,6 +839,7 @@ CREATE TABLE `user_auth_token` (
 , `updated_at` INTEGER NOT NULL
 , `revoked_at` INTEGER NULL);
 INSERT INTO user_auth_token VALUES(1,1,'ec33bb156cbb68a3415086cfaa9a40b3571e6ca6fd25c82c657c51b61f8447b7','fc1af826c1f06467279d4d6c6bc2cd734fa346cc9411689e5569ee5ce20cf7fd','Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:123.0) Gecko/20100101 Firefox/123.0','192.168.16.1',1,1710383456,1710383456,1710378892,1710378892,0);
+INSERT INTO user_auth_token VALUES(2,1,'a164d011aa5ebe692bc86303ec1f6c634d28211ecd36e137d8a5f31e7258e5e1','5ede4176713f7263eab149156b8a576026e6f58c00024d6c3c15a576742fadc3','Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:123.0) Gecko/20100101 Firefox/123.0','172.18.0.1',1,1710385864,1710385844,1710385226,1710385226,0);
 CREATE TABLE `cache_data` (
 `cache_key` TEXT PRIMARY KEY NOT NULL
 , `data` BLOB NOT NULL
@@ -932,7 +934,7 @@ CREATE TABLE `alert_configuration_history` (
 , `created_at` INTEGER NOT NULL
 , `default` INTEGER NOT NULL DEFAULT 0
 , `last_applied` INTEGER NOT NULL DEFAULT 0);
-INSERT INTO alert_configuration_history VALUES(1,1,replace('{\n	"alertmanager_config": {\n		"route": {\n			"receiver": "grafana-default-email",\n			"group_by": ["grafana_folder", "alertname"]\n		},\n		"receivers": [{\n			"name": "grafana-default-email",\n			"grafana_managed_receiver_configs": [{\n				"uid": "",\n				"name": "email receiver",\n				"type": "email",\n				"isDefault": true,\n				"settings": {\n					"addresses": "<example@email.com>"\n				}\n			}]\n		}]\n	}\n}\n','\n',char(10)),'e0528a75784033ae7b15c40851d89484','v1',1710378777,1,1710383444);
+INSERT INTO alert_configuration_history VALUES(1,1,replace('{\n	"alertmanager_config": {\n		"route": {\n			"receiver": "grafana-default-email",\n			"group_by": ["grafana_folder", "alertname"]\n		},\n		"receivers": [{\n			"name": "grafana-default-email",\n			"grafana_managed_receiver_configs": [{\n				"uid": "",\n				"name": "email receiver",\n				"type": "email",\n				"isDefault": true,\n				"settings": {\n					"addresses": "<example@email.com>"\n				}\n			}]\n		}]\n	}\n}\n','\n',char(10)),'e0528a75784033ae7b15c40851d89484','v1',1710378777,1,1710385122);
 CREATE TABLE `library_element` (
 `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL
 , `org_id` INTEGER NOT NULL
@@ -1136,9 +1138,9 @@ INSERT INTO sqlite_sequence VALUES('org',1);
 INSERT INTO sqlite_sequence VALUES('org_user',2);
 INSERT INTO sqlite_sequence VALUES('alert_configuration',1);
 INSERT INTO sqlite_sequence VALUES('alert_configuration_history',1);
-INSERT INTO sqlite_sequence VALUES('server_lock',7);
+INSERT INTO sqlite_sequence VALUES('server_lock',9);
 INSERT INTO sqlite_sequence VALUES('kv_store',3);
-INSERT INTO sqlite_sequence VALUES('user_auth_token',1);
+INSERT INTO sqlite_sequence VALUES('user_auth_token',2);
 INSERT INTO sqlite_sequence VALUES('data_source',3);
 INSERT INTO sqlite_sequence VALUES('secrets',3);
 INSERT INTO sqlite_sequence VALUES('dashboard_tag',1);
