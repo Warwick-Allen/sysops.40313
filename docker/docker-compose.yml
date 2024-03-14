@@ -1,0 +1,38 @@
+version: "3.9"
+
+
+services:
+
+  web:
+    build: ./web
+    ports:
+      - 18888:8888
+      - 19100:9100
+    volumes:
+      - web:/mnt/web
+    command: ./start.sh
+  
+  prometheus:
+    build: ./prometheus
+    ports:
+      - 19090:9090
+    volumes:
+      - web:/mnt/web
+    depends_on:
+      - web
+
+  grafana:
+    build: ./grafana
+    ports:
+      - 13000:3000
+    depends_on:
+      - prometheus
+
+
+volumes:
+  web:
+
+
+networks:
+  default:
+    name: everseen
