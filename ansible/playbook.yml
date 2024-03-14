@@ -1,0 +1,131 @@
+- name: EverSeen Docker Compose
+
+  hosts: everseen
+
+  vars:
+    node_exporter_name: node_exporter-1.7.0.linux-amd64
+
+  tasks:
+    - name: Install required system packages
+      ansible.builtin.apt:
+        pkg:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - software-properties-common
+          - python3-pip
+          - virtualenv
+          - python3-setuptools
+          - tar
+          - gzip
+          - unzip
+        state: present
+        update_cache: true
+      become: true
+
+    - name: Add Docker GPG apt key
+      ansible.builtin.apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+      become: true
+
+    - name: Add Docker repository
+      ansible.builtin.apt_repository:
+        repo: deb https://download.docker.com/linux/ubuntu focal stable
+        state: present
+      become: true
+
+    - name: Update apt and install docker-ce
+      ansible.builtin.apt:
+        name: docker-ce
+        state: present
+        update_cache: true
+      become: true
+
+    - name: Install Docker Module for Python
+      ansible.builtin.pip:
+        name: docker
+
+    - name: Run the Docker deamon
+      ansible.builtin.service:
+        name: docker
+        state: started
+      become: true
+
+    - name: Copy Docker Compose files
+      ansible.builtin.copy:
+        src: docker
+        dest: ./
+        directory_mode: "0700"
+        mode: "0600"
+
+    - name: Download Node Exporter
+      ansible.builtin.get_url:
+        url: "https://github.com/prometheus/node_exporter/releases/download/v1.7.0/{{ node_exporter_name }}.tar.gz"
+        dest: ./
+        checksum: sha256:a550cd5c05f760b7934a2d0afad66d2e92e681482f5f57a917465b1fba3b02a6
+        mode: "0600"
+
+    - name: Unpack Node Exporter
+      ansible.builtin.unarchive:
+        src: "{{ node_exporter_name }}.tar.gz"
+        dest: "{{ ansible_user_dir }}/docker/web/"
+        remote_src: true
+        creates: "{{ ansible_user_dir }}/docker/web/{{ node_exporter_name }}/node_exporter"
+
+    - name: Create a link to Node Exporter directory
+      ansible.builtin.file:
+        src: "{{ node_exporter_name }}"
+        dest: "docker/web/node_exporter"
+        state: link
+
+# Reference:
+# https://docs.ansible.com/ansible/latest/collections/community/docker/docker_compose_v2_module.html
+
+    - name: Tear down existing services
+      community.docker.docker_compose_v2:
+        project_src: docker
+        state: absent
+      become: true
+
+    # Fallback to running the "docker compose" command if the docker_compose_v2 module hits an error
+    # (which it often does).
+    - name: Create the services
+      block:
+        - name: Create the services using the module
+          community.docker.docker_compose_v2:
+            project_src: docker
+            state: stopped
+          become: true
+      rescue:
+        - name: Create the services via shell
+          ansible.builtin.command:
+            cmd: docker compose --project-directory docker build
+          changed_when: true
+          become: true
+
+    - name: Start the services (this ensures the volumes are created)
+      community.docker.docker_compose_v2:
+        project_src: docker
+        state: present
+      become: true
+
+    - name: Inspect the Prometheus configuration volume
+      community.docker.docker_volume_info:
+        name: docker_prometheus_config
+      register: prometheus_config_volume
+
+    - name: Update Prometheus configuration file
+      ansible.builtin.copy:
+        src: prometheus/conf/prometheus.yml
+        dest: "{{ prometheus_config_volume.volume.Mountpoint }}"
+        mode: "0600"
+      become: true
+
+    - name: Restart Prometheus
+      community.docker.docker_compose_v2:
+        project_src: docker
+        services:
+          - prometheus
+        state: restarted
+      become: true

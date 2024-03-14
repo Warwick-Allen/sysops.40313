@@ -17,19 +17,15 @@ RUN pip install --break-system-packages --upgrade pip setuptools wheel      &&  
 # Copy application files.
 COPY src .
 
-# Create a user to run the app.
-RUN adduser --system app
+# Create a user to run the app. (This needs more investigation to get it working correctly, so we
+# will stick with using the root use for now).
+#RUN adduser --system app
 
 # Install Node Exporter.
-COPY node_exporter/get-node_exporter.sh .
-RUN ./get-node_exporter.sh
-RUN tar -xvzf node_exporter-*.*-*.tar.gz
+COPY node_exporter/node_exporter .
 
 # Create a user to run Node Exporter.
 RUN adduser --system node_exporter
 
-# Copy the helper scripts.
-COPY node_exporter/run-node_exporter.sh .
-COPY start.sh .
-
-RUN mkdir -p /mnt/web
+# Copy the entry-point script.
+COPY entrypoint.sh .

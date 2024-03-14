@@ -3,14 +3,14 @@ version: "3.9"
 services:
 
   web:
-    build: ./web
+    build: web
     ports:
       - 18888:8888
       - 19100:9100
-    command: ./start.sh
+    entrypoint: sh -x entrypoint.sh
     labels:
       - group=application
-  
+
   prometheus:
     image: bitnami/prometheus:2.50.1
     ports:
@@ -25,7 +25,7 @@ services:
         target: /opt/bitnami/prometheus/conf
 
   grafana:
-    build: ./grafana
+    build: grafana
     ports:
       - 13000:3000
     depends_on:
