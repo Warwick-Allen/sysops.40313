@@ -1,6 +1,5 @@
 version: "3.9"
 
-
 services:
 
   web:
@@ -8,8 +7,6 @@ services:
     ports:
       - 18888:8888
       - 19100:9100
-    volumes:
-      - web:/mnt/web
     command: ./start.sh
     labels:
       - group=application
@@ -18,8 +15,6 @@ services:
     image: bitnami/prometheus:2.50.1
     ports:
       - 19090:9090
-    volumes:
-      - web:/mnt/web
     depends_on:
       - web
     labels:
@@ -33,10 +28,6 @@ services:
       - prometheus
     labels:
       - group=monitoring
-
-
-volumes:
-  web:
 
 
 networks:
