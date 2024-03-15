@@ -11,6 +11,8 @@ services:
     volumes:
       - web:/mnt/web
     command: ./start.sh
+    labels:
+      - group=application
   
   prometheus:
     image: bitnami/prometheus:2.50.1
@@ -20,6 +22,8 @@ services:
       - web:/mnt/web
     depends_on:
       - web
+    labels:
+      - group=monitoring
 
   grafana:
     build: ./grafana
@@ -27,6 +31,8 @@ services:
       - 13000:3000
     depends_on:
       - prometheus
+    labels:
+      - group=monitoring
 
 
 volumes:
