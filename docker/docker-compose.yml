@@ -13,9 +13,12 @@ services:
     command: ./start.sh
   
   prometheus:
-    build: ./prometheus
+    image: bitnami/prometheus:2.50.1
     ports:
       - 19090:9090
+    configs:
+     - source: prometheus_config
+       target: /opt/bitnami/prometheus/conf
     volumes:
       - web:/mnt/web
     depends_on:
@@ -31,6 +34,10 @@ services:
 
 volumes:
   web:
+
+configs:
+  prometheus_config:
+    file: /opt/bitnami/prometheus/conf
 
 
 networks:
