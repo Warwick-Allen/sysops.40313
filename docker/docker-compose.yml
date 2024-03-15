@@ -19,6 +19,10 @@ services:
       - web
     labels:
       - group=monitoring
+    volumes:
+      - type: volume
+        source: prometheus_config
+        target: /opt/bitnami/prometheus/conf
 
   grafana:
     build: ./grafana
@@ -29,6 +33,9 @@ services:
     labels:
       - group=monitoring
 
+volumes:
+  prometheus_config:
+    external: false
 
 networks:
   default:
