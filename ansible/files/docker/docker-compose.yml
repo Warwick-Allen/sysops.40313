@@ -1,0 +1,42 @@
+version: "3.9"
+
+services:
+
+  web:
+    build: web
+    ports:
+      - 18888:8888
+      - 19100:9100
+    entrypoint: sh -x entrypoint.sh
+    labels:
+      - group=application
+
+  prometheus:
+    image: bitnami/prometheus:2.50.1
+    ports:
+      - 19090:9090
+    depends_on:
+      - web
+    labels:
+      - group=monitoring
+    volumes:
+      - type: volume
+        source: prometheus_config
+        target: /opt/bitnami/prometheus/conf
+
+  grafana:
+    build: grafana
+    ports:
+      - 13000:3000
+    depends_on:
+      - prometheus
+    labels:
+      - group=monitoring
+
+volumes:
+  prometheus_config:
+    external: false
+
+networks:
+  default:
+    name: everseen

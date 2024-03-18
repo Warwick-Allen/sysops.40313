@@ -3,6 +3,8 @@
 .idea
 .env
 
+*.orig
+
 # Logs
 logs
 *.log

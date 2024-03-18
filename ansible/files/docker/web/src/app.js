@@ -5,7 +5,7 @@ var url = require('url')
 var fs = require('fs');
 var util = require('util');
 var log_file = fs.createWriteStream(
-  '/mnt/web/app.log',
+  '/var/web-app.log',
   {flags : 'w'}
 );
 var log_stdout = process.stdout;
