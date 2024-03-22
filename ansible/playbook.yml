@@ -1,3 +1,4 @@
+---
 - name: EverSeen Docker Compose
 
   hosts: everseen
@@ -6,6 +7,9 @@
     node_exporter_name: node_exporter-1.7.0.linux-amd64
 
   tasks:
+
+    # Provision the Ansible server.
+
     - name: Install required system packages
       ansible.builtin.apt:
         pkg:
@@ -16,9 +20,6 @@
           - python3-pip
           - virtualenv
           - python3-setuptools
-          - tar
-          - gzip
-          - unzip
         state: present
         update_cache: true
       become: true
@@ -59,6 +60,19 @@
         directory_mode: "0700"
         mode: "0600"
 
+    # Install Node Exporter.
+
+    - name: Install required system packages for Node Exporter installation
+      ansible.builtin.apt:
+        pkg:
+          - coreutils
+          - tar
+          - gzip
+          - unzip
+        state: present
+        update_cache: true
+      become: true
+
     - name: Download Node Exporter
       ansible.builtin.get_url:
         url: "https://github.com/prometheus/node_exporter/releases/download/v1.7.0/{{ node_exporter_name }}.tar.gz"
@@ -79,8 +93,7 @@
         dest: "docker/web/node_exporter"
         state: link
 
-# Reference:
-# https://docs.ansible.com/ansible/latest/collections/community/docker/docker_compose_v2_module.html
+    # Run Docker Compose and start the services.
 
     - name: Tear down existing services
       community.docker.docker_compose_v2:
@@ -92,13 +105,13 @@
     # (which it often does).
     - name: Create the services
       block:
-        - name: Create the services using the module
+        - name: Create the services using the docker_compose_v2 module
           community.docker.docker_compose_v2:
             project_src: docker
             state: stopped
           become: true
       rescue:
-        - name: Create the services via shell
+        - name: Create the services using the "docker compose" command
           ansible.builtin.command:
             cmd: docker compose --project-directory docker build
           changed_when: true
@@ -110,7 +123,9 @@
         state: present
       become: true
 
-    - name: Inspect the Prometheus configuration volume
+    # Configure Prometheus.
+
+    - name: Get information about the Prometheus configuration volume
       community.docker.docker_volume_info:
         name: docker_prometheus_config
       register: prometheus_config_volume
@@ -129,3 +144,79 @@
           - prometheus
         state: restarted
       become: true
+
+    # Configure Grafana.
+
+    - name: Install required system packages for Grafana configuration
+      ansible.builtin.apt:
+        pkg:
+          - coreutils # Provides sha256sum, cut
+          - sqlite    # Provides sqlite3
+        state: present
+        update_cache: true
+      become: true
+
+    - name: Copy the Grafana configuration files
+      ansible.builtin.copy:
+        src: grafana
+        dest: ./
+        directory_mode: "0700"
+        mode: "0600"
+
+    - name: Get the checksum of the current Grafana configuration SQL script
+      ansible.builtin.shell:
+        cmd: |
+          set -o pipefail
+          sha256sum grafana/grafana_config.sql |
+          cut -d' ' -f1
+        executable: /bin/bash
+      register: grafana_config_sql_sha256_new
+      changed_when: false
+
+    - name: Show the current Grafana configuration script checksum
+      ansible.builtin.debug:
+        msg: "{{ grafana_config_sql_sha256_new.stdout }}"
+
+    - name: Get information about the Grafana database volume
+      community.docker.docker_volume_info:
+        name: docker_grafana_db
+      register: grafana_db_volume
+
+    - name: Set the checksum file name
+      ansible.builtin.set_fact:
+        grafana_checksum_fname: "{{ grafana_db_volume.volume.Mountpoint }}/last-applied-config-sql.sha256sum"
+
+    - name: Get the checksum of the previous Grafana configuration SQL script
+      ansible.builtin.shell:
+        cmd: cat {{ grafana_checksum_fname }} || true
+        executable: /bin/bash
+      register: grafana_config_sql_sha256_old
+      changed_when: false
+      become: true
+
+    - name: Show the previous Grafana configuration script checksum
+      ansible.builtin.debug:
+        msg: "{{ grafana_config_sql_sha256_old.stdout }}"
+
+
+    - name: Conditionally update the Grafana configuration database
+      become: true
+      when: grafana_config_sql_sha256_new.stdout != grafana_config_sql_sha256_old.stdout
+      block:
+        - name: Update the Grafana configuration database
+          ansible.builtin.command:
+            cmd: >
+              sqlite3 {{ grafana_db_volume.volume.Mountpoint }}/grafana.db
+              'SELECT * FROM org'
+          register: grafana_result_set
+          changed_when: true
+
+        - name: Show the Grafana result set
+          ansible.builtin.debug:
+            msg: "{{ grafana_result_set }}"
+
+        - name: Write the checksum of the current Grafana configuration SQL script
+          ansible.builtin.copy:
+            content: "{{ grafana_config_sql_sha256_new.stdout }}"
+            dest: "{{ grafana_checksum_fname }}"
+            mode: "0666"
