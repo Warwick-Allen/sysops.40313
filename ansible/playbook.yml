@@ -109,6 +109,7 @@
           community.docker.docker_compose_v2:
             project_src: docker
             state: stopped
+            build: always
           become: true
       rescue:
         - name: Create the services using the "docker compose" command
@@ -173,10 +174,6 @@
       register: grafana_config_sql_sha256_new
       changed_when: false
 
-    - name: Show the current Grafana configuration script checksum
-      ansible.builtin.debug:
-        msg: "{{ grafana_config_sql_sha256_new.stdout }}"
-
     - name: Get information about the Grafana database volume
       community.docker.docker_volume_info:
         name: docker_grafana_db
@@ -189,34 +186,49 @@
     - name: Get the checksum of the previous Grafana configuration SQL script
       ansible.builtin.shell:
         cmd: cat {{ grafana_checksum_fname }} || true
-        executable: /bin/bash
+        executable: /bin/sh
       register: grafana_config_sql_sha256_old
       changed_when: false
       become: true
-
-    - name: Show the previous Grafana configuration script checksum
-      ansible.builtin.debug:
-        msg: "{{ grafana_config_sql_sha256_old.stdout }}"
-
 
     - name: Conditionally update the Grafana configuration database
       become: true
       when: grafana_config_sql_sha256_new.stdout != grafana_config_sql_sha256_old.stdout
       block:
-        - name: Update the Grafana configuration database
-          ansible.builtin.command:
-            cmd: >
-              sqlite3 {{ grafana_db_volume.volume.Mountpoint }}/grafana.db
-              'SELECT * FROM org'
-          register: grafana_result_set
-          changed_when: true
+        - name: Set the original Grafana database file name
+          ansible.builtin.set_fact:
+            grafana_orig_database_fname: "{{ grafana_db_volume.volume.Mountpoint }}/grafana.db"
 
-        - name: Show the Grafana result set
-          ansible.builtin.debug:
-            msg: "{{ grafana_result_set }}"
+        - name: Set the temporary Grafana database file name
+          ansible.builtin.set_fact:
+            grafana_temp_database_fname: "{{ grafana_db_volume.volume.Mountpoint }}/.grafana.db"
+
+        - name: Make a temporary copy of the Grafana configuration database
+#               Working on a copy means that no updates are made to the database unless the entire
+#               script completes successfully. Wrapping the script in a transaction should ensure
+#               atomicity, but that seems to be unreliable.
+          ansible.builtin.copy:
+            src: "{{ grafana_orig_database_fname }}"
+            dest: "{{ grafana_temp_database_fname }}"
+            mode: "0640"
+            remote_src: true
+
+        - name: Update the temporary Grafana configuration database
+          ansible.builtin.shell:
+            cmd: "sqlite3 {{ grafana_temp_database_fname }} <grafana/grafana_config.sql"
+            executable: /bin/sh
+          register: grafana_result
+          changed_when: grafana_result.rc == 0
+
+        - name: Replace the Grafana configuration database wtih the updated temporary copy
+          ansible.builtin.copy:
+            src: "{{ grafana_temp_database_fname }}"
+            dest: "{{ grafana_orig_database_fname }}"
+            mode: "0640"
+            remote_src: true
 
         - name: Write the checksum of the current Grafana configuration SQL script
           ansible.builtin.copy:
             content: "{{ grafana_config_sql_sha256_new.stdout }}"
             dest: "{{ grafana_checksum_fname }}"
-            mode: "0666"
+            mode: "0640"

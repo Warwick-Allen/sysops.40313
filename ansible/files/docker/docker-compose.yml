@@ -23,7 +23,6 @@ services:
         target: /opt/bitnami/prometheus/conf
 
   grafana:
-#    build: grafana
     image: grafana/grafana:10.0.12
     ports:
       - 13000:3000
