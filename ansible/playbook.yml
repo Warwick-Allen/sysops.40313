@@ -22,18 +22,21 @@
           - python3-setuptools
         state: present
         update_cache: true
+      become_user: root
       become: true
 
     - name: Add Docker GPG apt key
       ansible.builtin.apt_key:
         url: https://download.docker.com/linux/ubuntu/gpg
         state: present
+      become_user: root
       become: true
 
     - name: Add Docker repository
       ansible.builtin.apt_repository:
         repo: deb https://download.docker.com/linux/ubuntu focal stable
         state: present
+      become_user: root
       become: true
 
     - name: Update apt and install docker-ce
@@ -41,6 +44,7 @@
         name: docker-ce
         state: present
         update_cache: true
+      become_user: root
       become: true
 
     - name: Install Docker Module for Python
@@ -51,6 +55,7 @@
       ansible.builtin.service:
         name: docker
         state: started
+      become_user: root
       become: true
 
     - name: Copy Docker Compose files
@@ -71,6 +76,7 @@
           - unzip
         state: present
         update_cache: true
+      become_user: root
       become: true
 
     - name: Download Node Exporter
@@ -78,7 +84,7 @@
         url: "https://github.com/prometheus/node_exporter/releases/download/v1.7.0/{{ node_exporter_name }}.tar.gz"
         dest: ./
         checksum: sha256:a550cd5c05f760b7934a2d0afad66d2e92e681482f5f57a917465b1fba3b02a6
-        mode: "0600"
+        mode: "0640"
 
     - name: Unpack Node Exporter
       ansible.builtin.unarchive:
@@ -99,29 +105,31 @@
       community.docker.docker_compose_v2:
         project_src: docker
         state: absent
+      become_user: root
       become: true
 
     # Fallback to running the "docker compose" command if the docker_compose_v2 module hits an error
     # (which it often does).
     - name: Create the services
+      become_user: root
+      become: true
       block:
         - name: Create the services using the docker_compose_v2 module
           community.docker.docker_compose_v2:
             project_src: docker
             state: stopped
             build: always
-          become: true
       rescue:
         - name: Create the services using the "docker compose" command
           ansible.builtin.command:
             cmd: docker compose --project-directory docker build
           changed_when: true
-          become: true
 
     - name: Start the services (this ensures the volumes are created)
       community.docker.docker_compose_v2:
         project_src: docker
         state: present
+      become_user: root
       become: true
 
     # Configure Prometheus.
@@ -136,6 +144,7 @@
         src: prometheus/conf/prometheus.yml
         dest: "{{ prometheus_config_volume.volume.Mountpoint }}"
         mode: "0600"
+      become_user: root
       become: true
 
     - name: Restart Prometheus
@@ -144,6 +153,7 @@
         services:
           - prometheus
         state: restarted
+      become_user: root
       become: true
 
     # Configure Grafana.
@@ -155,80 +165,166 @@
           - sqlite    # Provides sqlite3
         state: present
         update_cache: true
+      become_user: root
       become: true
 
-    - name: Copy the Grafana configuration files
-      ansible.builtin.copy:
-        src: grafana
-        dest: ./
-        directory_mode: "0700"
-        mode: "0600"
-
-    - name: Get the checksum of the current Grafana configuration SQL script
-      ansible.builtin.shell:
-        cmd: |
-          set -o pipefail
-          sha256sum grafana/grafana_config.sql |
-          cut -d' ' -f1
-        executable: /bin/bash
-      register: grafana_config_sql_sha256_new
-      changed_when: false
+#    - name: Copy the Grafana configuration files
+#      ansible.builtin.copy:
+#        src: grafana
+#        dest: ./
+#        directory_mode: "0700"
+#        mode: "0640"
 
     - name: Get information about the Grafana database volume
       community.docker.docker_volume_info:
         name: docker_grafana_db
       register: grafana_db_volume
 
-    - name: Set the checksum file name
+    - name: Set the original Grafana database file name
       ansible.builtin.set_fact:
-        grafana_checksum_fname: "{{ grafana_db_volume.volume.Mountpoint }}/last-applied-config-sql.sha256sum"
+        grafana_orig_database_fname: "{{ grafana_db_volume.volume.Mountpoint }}/grafana.db"
 
-    - name: Get the checksum of the previous Grafana configuration SQL script
-      ansible.builtin.shell:
-        cmd: cat {{ grafana_checksum_fname }} || true
-        executable: /bin/sh
-      register: grafana_config_sql_sha256_old
+    - name: Check whether the database table to record the migration already exists
+      ansible.builtin.command:
+        cmd: |
+          sqlite3 '{{ grafana_orig_database_fname }}' '.schema config_migration'
+      register: grafana_config_migration_table
       changed_when: false
+      become_user: root
       become: true
 
-    - name: Conditionally update the Grafana configuration database
+    - name: Create a database table to record the migration
+      when: grafana_config_migration_table.stdout == ''
+      ansible.builtin.shell:
+        cmd: |
+          sqlite3 '{{ grafana_orig_database_fname }}' '
+            CREATE TABLE IF NOT EXISTS config_migration (
+              sha256 TEXT NOT NULL,
+              timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )'
+        executable: /bin/sh
+      register: grafana_create_migration_table_result
+      changed_when: grafana_create_migration_table_result.rc == 0
+      become_user: root
       become: true
-      when: grafana_config_sql_sha256_new.stdout != grafana_config_sql_sha256_old.stdout
-      block:
-        - name: Set the original Grafana database file name
-          ansible.builtin.set_fact:
-            grafana_orig_database_fname: "{{ grafana_db_volume.volume.Mountpoint }}/grafana.db"
 
-        - name: Set the temporary Grafana database file name
-          ansible.builtin.set_fact:
-            grafana_temp_database_fname: "{{ grafana_db_volume.volume.Mountpoint }}/.grafana.db"
+#    - name: Loop through the migration scripts
+#      loop: "{{ query('fileglob', 'grafana/migration_scripts/*.sql') }}"
+#      become_user: root
+#      become: true
+#      block:
 
-        - name: Make a temporary copy of the Grafana configuration database
-#               Working on a copy means that no updates are made to the database unless the entire
-#               script completes successfully. Wrapping the script in a transaction should ensure
-#               atomicity, but that seems to be unreliable.
-          ansible.builtin.copy:
-            src: "{{ grafana_orig_database_fname }}"
-            dest: "{{ grafana_temp_database_fname }}"
-            mode: "0640"
-            remote_src: true
+    - name: Get the checksum of the current Grafana configuration SQL migration scripts
+      loop: "{{ query('fileglob', 'grafana/migration_scripts/*.sql') }}"
+      loop_control:
+        loop_var: file
+      ansible.builtin.shell:
+        cmd: |
+          set -o pipefail
+          sha256sum '{{ file }}' |
+          cut -d' ' -f1
+        executable: /bin/bash
+      register: grafana_config_sql_sha256
+      changed_when: false
 
-        - name: Update the temporary Grafana configuration database
-          ansible.builtin.shell:
-            cmd: "sqlite3 {{ grafana_temp_database_fname }} <grafana/grafana_config.sql"
-            executable: /bin/sh
-          register: grafana_result
-          changed_when: grafana_result.rc == 0
+#        - name: Set the checksum file name
+#          ansible.builtin.set_fact:
+#            grafana_checksum_fname: "{{ grafana_db_volume.volume.Mountpoint }}/last-applied-config-sql.sha256sum"
 
-        - name: Replace the Grafana configuration database wtih the updated temporary copy
-          ansible.builtin.copy:
-            src: "{{ grafana_temp_database_fname }}"
-            dest: "{{ grafana_orig_database_fname }}"
-            mode: "0640"
-            remote_src: true
+#        - name: Get the checksum of the previous Grafana configuration SQL migration script
+#          ansible.builtin.shell:
+#            cmd: cat {{ grafana_checksum_fname }} || true
+#            executable: /bin/sh
+#          register: grafana_config_sql_sha256_old
+#          changed_when: false
 
-        - name: Write the checksum of the current Grafana configuration SQL script
-          ansible.builtin.copy:
-            content: "{{ grafana_config_sql_sha256_new.stdout }}"
-            dest: "{{ grafana_checksum_fname }}"
-            mode: "0640"
+    - name: See which migration scripts have already been run
+      loop: "{{ grafana_config_sql_sha256.results }}"
+      loop_control:
+        loop_var: checksum
+      ansible.builtin.command:
+        cmd: |
+          sqlite3 '{{ grafana_orig_database_fname }}' '
+            SELECT COUNT(1)
+              FROM config_migration
+              WHERE `sha256` = "{{ checksum.stdout }}"'
+      register: grafana_checksum_query
+      changed_when: false
+      become_user: root
+      become: true
+
+#    - name: Conditionally update the Grafana configuration database
+#      become_user: root
+#      become: true
+#      when: item.stdout < 1
+#      block:
+
+    - name: → query
+      loop: "{{ grafana_checksum_query.results }}"
+      loop_control:
+        loop_var: query
+      ansible.builtin.debug:
+        var: query
+
+#    - name: Set the temporary Grafana database file name
+#      ansible.builtin.set_fact:
+#        grafana_temp_database_fname: "{{ grafana_db_volume.volume.Mountpoint }}/.grafana.db"
+#
+    - name: Make a temporary copy of the Grafana configuration database
+#     Working on a copy means that no updates are made to the database unless the entire script
+#     completes successfully. Wrapping the script in a transaction should ensure atomicity, but
+#     that seems to be unreliable.
+      loop: "{{ grafana_checksum_query.results }}"
+      loop_control:
+        loop_var: query
+      when: query.stdout | int < 1
+      ansible.builtin.copy:
+        src: "{{ grafana_orig_database_fname }}"
+        dest: "{{ grafana_db_volume.volume.Mountpoint }}/.{{ query.checksum.stdout }}.grafana.db"
+        mode: "0640"
+        remote_src: true
+      become_user: root
+      become: true
+
+    - name: Update the temporary Grafana configuration database
+      loop: "{{ grafana_checksum_query.results }}"
+      loop_control:
+        loop_var: query
+      when: query.stdout | int < 1
+      ansible.builtin.shell:
+        cmd: |
+          set -o pipefail
+          cat
+            '{{ query.checksum.file }}'
+            <(echo '
+              INSERT INTO config_migration VALUES (
+                "{{ query.checksum.stdout }}"
+              )
+            ') |
+          sqlite3
+            '{{ grafana_db_volume.volume.Mountpoint }}/.{{ query.checksum.stdout }}.grafana.db'
+        executable: /bina/bash
+      register: grafana_migration_result
+      changed_when: grafana_migration_result.rc == 0
+      become_user: root
+      become: true
+
+    - name: Replace the Grafana configuration database wtih the updated temporary copy
+      loop: "{{ grafana_checksum_query.results }}"
+      loop_control:
+        loop_var: query
+      when: query.stdout | int < 1
+      ansible.builtin.copy:
+        src: "{{ grafana_db_volume.volume.Mountpoint }}/.{{ query.checksum.stdout }}.grafana.db"
+        dest: "{{ grafana_orig_database_fname }}"
+        mode: "0640"
+        remote_src: true
+      become_user: root
+      become: true
+
+#        - name: Write the checksum of the current Grafana configuration SQL script
+#          ansible.builtin.copy:
+#            content: "{{ grafana_config_sql_sha256_new.stdout }}"
+#            dest: "{{ grafana_checksum_fname }}"
+#            mode: "0640"
+#
