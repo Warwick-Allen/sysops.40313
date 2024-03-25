@@ -1,4 +1,5 @@
 ---
+
 - name: EverSeen Docker Compose
 
   hosts: everseen
@@ -168,12 +169,14 @@
       become_user: root
       become: true
 
-#    - name: Copy the Grafana configuration files
-#      ansible.builtin.copy:
-#        src: grafana
-#        dest: ./
-#        directory_mode: "0700"
-#        mode: "0640"
+    - name: Stop Grafana
+      community.docker.docker_compose_v2:
+        project_src: docker
+        services:
+          - grafana
+        state: stopped
+      become_user: root
+      become: true
 
     - name: Get information about the Grafana database volume
       community.docker.docker_volume_info:
@@ -208,12 +211,6 @@
       become_user: root
       become: true
 
-#    - name: Loop through the migration scripts
-#      loop: "{{ query('fileglob', 'grafana/migration_scripts/*.sql') }}"
-#      become_user: root
-#      become: true
-#      block:
-
     - name: Get the checksum of the current Grafana configuration SQL migration scripts
       loop: "{{ query('fileglob', 'grafana/migration_scripts/*.sql') }}"
       loop_control:
@@ -226,17 +223,6 @@
         executable: /bin/bash
       register: grafana_config_sql_sha256
       changed_when: false
-
-#        - name: Set the checksum file name
-#          ansible.builtin.set_fact:
-#            grafana_checksum_fname: "{{ grafana_db_volume.volume.Mountpoint }}/last-applied-config-sql.sha256sum"
-
-#        - name: Get the checksum of the previous Grafana configuration SQL migration script
-#          ansible.builtin.shell:
-#            cmd: cat {{ grafana_checksum_fname }} || true
-#            executable: /bin/sh
-#          register: grafana_config_sql_sha256_old
-#          changed_when: false
 
     - name: See which migration scripts have already been run
       loop: "{{ grafana_config_sql_sha256.results }}"
@@ -253,23 +239,28 @@
       become_user: root
       become: true
 
-#    - name: Conditionally update the Grafana configuration database
-#      become_user: root
-#      become: true
-#      when: item.stdout < 1
-#      block:
-
-    - name: → query
+    - name: Copy the migration script
       loop: "{{ grafana_checksum_query.results }}"
       loop_control:
         loop_var: query
-      ansible.builtin.debug:
-        var: query
+      when: query.stdout | int < 1
+      ansible.builtin.copy:
+        src: "{{ query.checksum.file }}"
+        dest: ".{{ query.checksum.stdout }}.sql"
+        owner: ansible
+        group: ansible
+        mode: "0640"
 
-#    - name: Set the temporary Grafana database file name
-#      ansible.builtin.set_fact:
-#        grafana_temp_database_fname: "{{ grafana_db_volume.volume.Mountpoint }}/.grafana.db"
-#
+    - name: Append a line to the migration script to record that the migration has been applied
+      loop: "{{ grafana_checksum_query.results }}"
+      loop_control:
+        loop_var: query
+      when: query.stdout | int < 1
+      ansible.builtin.lineinfile:
+        path: ".{{ query.checksum.stdout }}.sql"
+        insertafter: EOF
+        line: INSERT INTO config_migration (`sha256`) VALUES ("{{ query.checksum.stdout }}");
+
     - name: Make a temporary copy of the Grafana configuration database
 #     Working on a copy means that no updates are made to the database unless the entire script
 #     completes successfully. Wrapping the script in a transaction should ensure atomicity, but
@@ -280,8 +271,10 @@
       when: query.stdout | int < 1
       ansible.builtin.copy:
         src: "{{ grafana_orig_database_fname }}"
-        dest: "{{ grafana_db_volume.volume.Mountpoint }}/.{{ query.checksum.stdout }}.grafana.db"
+        dest: ".{{ query.checksum.stdout }}.grafana.db"
         mode: "0640"
+        owner: ansible
+        group: ansible
         remote_src: true
       become_user: root
       become: true
@@ -292,22 +285,10 @@
         loop_var: query
       when: query.stdout | int < 1
       ansible.builtin.shell:
-        cmd: |
-          set -o pipefail
-          cat
-            '{{ query.checksum.file }}'
-            <(echo '
-              INSERT INTO config_migration VALUES (
-                "{{ query.checksum.stdout }}"
-              )
-            ') |
-          sqlite3
-            '{{ grafana_db_volume.volume.Mountpoint }}/.{{ query.checksum.stdout }}.grafana.db'
-        executable: /bina/bash
+        cmd: sqlite3 '.{{ query.checksum.stdout }}.grafana.db' <'.{{ query.checksum.stdout }}.sql'
+        executable: /bin/sh
       register: grafana_migration_result
       changed_when: grafana_migration_result.rc == 0
-      become_user: root
-      become: true
 
     - name: Replace the Grafana configuration database wtih the updated temporary copy
       loop: "{{ grafana_checksum_query.results }}"
@@ -315,16 +296,18 @@
         loop_var: query
       when: query.stdout | int < 1
       ansible.builtin.copy:
-        src: "{{ grafana_db_volume.volume.Mountpoint }}/.{{ query.checksum.stdout }}.grafana.db"
+        src: ".{{ query.checksum.stdout }}.grafana.db"
         dest: "{{ grafana_orig_database_fname }}"
         mode: "0640"
         remote_src: true
       become_user: root
       become: true
 
-#        - name: Write the checksum of the current Grafana configuration SQL script
-#          ansible.builtin.copy:
-#            content: "{{ grafana_config_sql_sha256_new.stdout }}"
-#            dest: "{{ grafana_checksum_fname }}"
-#            mode: "0640"
-#
+    - name: Start Grafana
+      community.docker.docker_compose_v2:
+        project_src: docker
+        services:
+          - grafana
+        state: present
+      become_user: root
+      become: true
