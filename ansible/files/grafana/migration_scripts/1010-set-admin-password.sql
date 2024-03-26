@@ -31,3 +31,16 @@ INSERT INTO
   sqlite_sequence
 VALUES
   ('user_auth_token', 1);
+
+---
+
+UPDATE `user`
+SET
+  `password` = '02eff6506b8b21bfa2e20fe0a9edfdfe5bab17a8276cd9a6a1a5e8afae6129ff8d911d8a66a7238876aae9a6c2c33e75c42d'
+, `created` ='2024-03-26 06:40:41'
+, `updated` ='2024-03-26 06:43:58'
+, `last_seen_at` ='2024-03-26 06:43:58'
+WHERE
+`id`=1
+;
+

@@ -290,18 +290,18 @@
       register: grafana_migration_result
       changed_when: grafana_migration_result.rc == 0
 
-    - name: Replace the Grafana configuration database wtih the updated temporary copy
-      loop: "{{ grafana_checksum_query.results }}"
-      loop_control:
-        loop_var: query
-      when: query.stdout | int < 1
-      ansible.builtin.copy:
-        src: ".{{ query.checksum.stdout }}.grafana.db"
-        dest: "{{ grafana_orig_database_fname }}"
-        mode: "0640"
-        remote_src: true
-      become_user: root
-      become: true
+#    - name: Replace the Grafana configuration database wtih the updated temporary copy
+#      loop: "{{ grafana_checksum_query.results }}"
+#      loop_control:
+#        loop_var: query
+#      when: query.stdout | int < 1
+#      ansible.builtin.copy:
+#        src: ".{{ query.checksum.stdout }}.grafana.db"
+#        dest: "{{ grafana_orig_database_fname }}"
+#        mode: "0640"
+#        remote_src: true
+#      become_user: root
+#      become: true
 
     - name: Start Grafana
       community.docker.docker_compose_v2:
